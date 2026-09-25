@@ -1,0 +1,61 @@
+{
+  "name": "life-metric",
+  "version": "0.1.0",
+  "description": "Read the LIFE extinction-risk layers (Eyres et al. 2025) from a Zarr v3 store, with the colour scales to draw them",
+  "author": {
+    "name": "Anil Madhavapeddy",
+    "email": "anil@recoil.org",
+    "url": "https://anil.recoil.org"
+  },
+  "contributors": [
+    {
+      "name": "Michael Dales",
+      "email": "mwd24@cam.ac.uk"
+    }
+  ],
+  "license": "MIT",
+  "homepage": "https://source.coop/tessera/life",
+  "keywords": [
+    "biodiversity",
+    "extinction",
+    "zarr",
+    "raster",
+    "LIFE",
+    "maplibre"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "tsc -p tsconfig.test.json && node --test \"dist-test/test/*.test.js\"",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "zarrita": "^0.7.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.6.0"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}
