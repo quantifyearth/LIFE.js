@@ -15,6 +15,10 @@
   ],
   "license": "MIT",
   "homepage": "https://source.coop/tessera/life",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/quantifyearth/LIFE.js.git"
+  },
   "keywords": [
     "biodiversity",
     "extinction",
