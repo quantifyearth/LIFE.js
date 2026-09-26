@@ -45,7 +45,7 @@
   "sideEffects": false,
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "tsc -p tsconfig.test.json && node --test \"dist-test/test/*.test.js\"",
+    "test": "tsc -p tsconfig.test.json && node --test dist-test/test/*.test.js",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
