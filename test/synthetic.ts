@@ -42,6 +42,7 @@ export async function makeStore(): Promise<Map<string, Uint8Array>> {
     scenarios: { arable: "conversion", restore: "reversion" },
     curves: { "0.25": "main", gompertz: "gompertz" },
     taxa: Object.fromEntries(TAXA.map((t) => [t, t])),
+    data_model: { overviews: "Averages for display; use level 1 for totals." },
     multiscales: { layout: [levelEntry("0", 1), levelEntry("1", 2, "0")], resampling_method: "average" },
   } });
   for (const [asset, factor] of [["0", 1], ["1", 2]] as const) {

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import * as zarr from "zarrita";
 import { Catalogue, LifeStore, bbox } from "../src/index.js";
 import { H, RES, W, bandValues, makeStore } from "./synthetic.js";
 
@@ -16,6 +17,8 @@ test("open describes the store from its attributes", async () => {
   assert.deepEqual(Object.keys(store.curves), ["0.25", "gompertz"]);
   assert.deepEqual(Object.keys(store.taxa), ["all", "AMPHIBIA", "AVES", "MAMMALIA", "REPTILIA"]);
   assert.equal(store.info.version, "0.9");
+  assert.equal(store.dataModel.overviews, "Averages for display; use level 1 for totals.");
+  assert.match(store.describe(), /data model:/);
   assert.match(store.describe(), /conversion/);
   assert.deepEqual(store.levels, [1, 2]);
   assert.deepEqual([store.grid.width, store.grid.height, store.grid.res, store.grid.lat0], [W, H, RES, 90]);
@@ -44,6 +47,41 @@ test("layer metadata", async () => {
   assert.equal(area.kind, "area");
   assert.deepEqual(area.bands, ["area"]);
   assert.equal(area.fillValue, 0);
+});
+
+test("float64 beta arrays and scenario names with underscores", async () => {
+  const bytes = new Map<string, Uint8Array>();
+  const root = zarr.root(bytes);
+  await zarr.create(root, { attributes: {
+    version: "1.1~beta1", scenarios: { restore_agriculture: "restoration of agriculture" },
+    curves: { "0.25": "power law" }, taxa: Object.fromEntries(["all", "AMPHIBIA", "AVES", "MAMMALIA", "REPTILIA"].map((t) => [t, t])),
+    multiscales: { layout: [{ asset: "0", transform: { scale: [1, 1] },
+      "spatial:transform": [90, 0, -180, 0, -90, 90], "spatial:shape": [2, 4] }] },
+  } });
+  await zarr.create(root.resolve("0"));
+  const values = new Float64Array(5 * 2 * 4).fill(0.123456789012345);
+  const score = await zarr.create(root.resolve("0/restore_agriculture_0.25"), {
+    shape: [5, 2, 4], chunkShape: [1, 2, 4], dtype: "float64", fillValue: NaN,
+    attributes: { scenario: "restore_agriculture", curve: "0.25", taxon_labels: ["all", "AMPHIBIA", "AVES", "MAMMALIA", "REPTILIA"] },
+  });
+  await zarr.set(score, null, { data: values, shape: [5, 2, 4], stride: [8, 4, 1] });
+  const area = await zarr.create(root.resolve("0/restore_agriculture_area_changed"), {
+    shape: [2, 4], chunkShape: [2, 4], dtype: "float64", fillValue: 0,
+    attributes: { scenario: "restore_agriculture", kind: "area" },
+  });
+  await zarr.set(area, null, { data: new Float64Array(8).fill(1234567.123456789), shape: [2, 4], stride: [4, 1] });
+
+  const store = await LifeStore.open(bytes);
+  const layer = await store.layer("restore_agriculture", "0.25");
+  assert.equal(layer.scenario, "restore_agriculture");
+  assert.equal(layer.curve, "0.25");
+  const raster = await layer.read({ window: { row0: 0, row1: 1, col0: 0, col1: 1 } });
+  assert.ok(raster.data instanceof Float64Array);
+  assert.equal(raster.data[0], values[0]);
+  const sampled = await layer.sample([[45, -135]]);
+  assert.ok(sampled instanceof Float64Array);
+  assert.equal(sampled[0], values[0]);
+  assert.ok((await (await store.area("restore_agriculture")).read()).data instanceof Float64Array);
 });
 
 test("read by bbox and window", async () => {
@@ -114,6 +152,7 @@ const REAL_BASE = process.env.LIFE_CATALOGUE_URL ?? "http://127.0.0.1:8931";
 const REAL = process.env.LIFE_STORE_URL ?? REAL_BASE + "/v1.01";
 const reachable = await fetch(REAL + "/zarr.json").then((r) => r.ok).catch(() => false);
 const published = await fetch("https://data.source.coop/tessera/life/v1.01/zarr.json").then((r) => r.ok).catch(() => false);
+const publishedBeta = await fetch("https://data.source.coop/tessera/life/v1.1~beta1/zarr.json").then((r) => r.ok).catch(() => false);
 
 test("real store", { skip: !reachable }, async () => {
   const store = await LifeStore.open(REAL);
@@ -160,4 +199,20 @@ test("published store", { skip: !published }, async () => {
   const win = store.level(4).grid.window(box);
   assert.deepEqual([r.grid.height, r.grid.width], [win.row1 - win.row0, win.col1 - win.col0]);
   assert.deepEqual([r.grid.height, r.grid.width], [10, 17]);
+});
+
+test("published beta store", { skip: !publishedBeta }, async () => {
+  const store = await new Catalogue().open("1.1~beta1");
+  assert.equal(store.version, "1.1~beta1");
+  assert.deepEqual(store.levels, [1, 2, 4, 8, 16]);
+  assert.deepEqual(Object.keys(store.scenarios), ["arable", "pasture", "urban", "restore", "restore_agriculture", "restore_all"]);
+  assert.deepEqual(Object.keys(store.curves), ["0.25"]);
+  assert.equal(store.layerNames().length, 12);
+  assert.match(store.dataModel.overviews ?? "", /overview/i);
+  const score = await store.layer("restore_agriculture", "0.25");
+  assert.equal((await score.array()).dtype, "float64");
+  const raster = await score.read({ window: { row0: 5000, row1: 5001, col0: 11000, col1: 11001 } });
+  assert.ok(raster.data instanceof Float64Array);
+  const area = await store.area("restore_all");
+  assert.ok((await area.read({ window: { row0: 5000, row1: 5001, col0: 11000, col1: 11001 } })).data instanceof Float64Array);
 });

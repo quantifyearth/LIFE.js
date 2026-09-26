@@ -11,12 +11,14 @@
 import * as zarr from "zarrita";
 import { Grid, type BBox, type Window } from "./grid.js";
 
-export type Scenario = "arable" | "restore";
+export type Scenario = "arable" | "restore" | "pasture" | "urban" | "restore_agriculture" | "restore_all";
 export type Curve = "0.1" | "0.25" | "0.5" | "1.0" | "gompertz";
 export type Taxon = "all" | "AMPHIBIA" | "AVES" | "MAMMALIA" | "REPTILIA";
 export type Kind = "score" | "area";
 
+/** v1.01 fallback names; use `store.scenarios` for the opened version. */
 export const SCENARIOS: readonly Scenario[] = ["arable", "restore"];
+/** v1.01 fallback curves; use `store.curves` for the opened version. */
 export const CURVES: readonly Curve[] = ["0.1", "0.25", "0.5", "1.0", "gompertz"];
 export const TAXA: readonly Taxon[] = ["all", "AMPHIBIA", "AVES", "MAMMALIA", "REPTILIA"];
 /** The published catalogue: `<catalogue>/versions.json` lists releases and `<catalogue>/v<version>` is a store. */
@@ -84,7 +86,8 @@ export function parseLayout(layout: readonly LayoutEntry[], fallback?: Grid): Ma
 
 /** Any store zarrita can read: a `FetchStore`, a `Map`, or anything implementing its readable interface. */
 export type StoreLike = zarr.Readable;
-type FloatArray = zarr.Array<"float32", StoreLike>;
+type FloatArray = zarr.Array<"float32" | "float64", StoreLike>;
+type FloatData = Float32Array | Float64Array;
 
 /** Attributes as the store wrote them. */
 export type Attrs = Record<string, unknown>;
@@ -102,16 +105,16 @@ export interface BandStatistics {
  * Pixels read from one layer, with the grid that places them.
  *
  * `data` holds `bands.length * height * width` values in band, row, column
- * order, float32 with NaN where there is no data.
+ * order, in the store's float32 or float64 dtype with NaN where there is no data.
  */
 export interface Raster {
-  readonly data: Float32Array;
+  readonly data: FloatData;
   readonly grid: Grid;
   readonly bands: readonly string[];
   readonly layer: string;
   readonly level: number;
   /** The values of one band, as a view onto `data`. */
-  band(name: string): Float32Array;
+  band(name: string): FloatData;
 }
 
 export interface ReadOptions {
@@ -123,7 +126,7 @@ export interface ReadOptions {
   readonly level?: number;
 }
 
-function makeRaster(data: Float32Array, grid: Grid, bands: readonly string[], layer: string, level: number): Raster {
+function makeRaster(data: FloatData, grid: Grid, bands: readonly string[], layer: string, level: number): Raster {
   const size = grid.width * grid.height;
   return {
     data, grid, bands, layer, level,
@@ -260,10 +263,10 @@ export class Layer {
    * The value at each `[lat, lon]` point, NaN off the grid or where there is
    * no data. Points sharing a chunk are served from one chunk read.
    */
-  async sample(points: ReadonlyArray<readonly [number, number]>, taxon = "all", level = 1): Promise<Float32Array> {
+  async sample(points: ReadonlyArray<readonly [number, number]>, taxon = "all", level = 1): Promise<FloatData> {
     const arr = await this.array(level);
     const grid = await this.grid(level);
-    const out = new Float32Array(points.length).fill(NaN);
+    const out = (arr.dtype === "float64" ? new Float64Array(points.length) : new Float32Array(points.length)).fill(NaN);
     const [ch, cw] = arr.chunks.slice(-2) as [number, number];
     const b = arr.shape.length === 2 ? -1 : this.kind === "area" ? 0 : this.bandIndex(taxon);
     const byChunk = new Map<string, number[]>();
@@ -294,7 +297,8 @@ export interface OpenOptions {
  * A LIFE store: what it is, its resolution levels and its layers.
  *
  * `info` says what the dataset is; `scenarios`, `curves` and `taxa` map each
- * name to the store's description of it; `levels` lists the resolution levels
+ * name to the store's description of it; `dataModel` explains array values;
+ * `levels` lists the resolution levels
  * by reduction factor, 1 being the base grid. All of it is read from the
  * store's root attributes and `multiscales` layout, so a store from another
  * dataset version is described by its own contents.
@@ -308,6 +312,8 @@ export class LifeStore {
   readonly curves: Readonly<Record<string, string>>;
   /** Species group name to the store's description of it. */
   readonly taxa: Readonly<Record<string, string>>;
+  /** The store's explanation of array names, values and overview use. */
+  readonly dataModel: Readonly<Record<string, string>>;
   readonly grid: Grid;
   readonly levels: readonly number[];
   private readonly levelMap: ReadonlyMap<number, Level>;
@@ -332,6 +338,8 @@ export class LifeStore {
     this.scenarios = descriptions(attrs.scenarios, SCENARIOS);
     this.curves = descriptions(attrs.curves, CURVES);
     this.taxa = descriptions(attrs.taxa, TAXA);
+    this.dataModel = attrs.data_model && typeof attrs.data_model === "object" && !Array.isArray(attrs.data_model)
+      ? Object.fromEntries(Object.entries(attrs.data_model as Record<string, unknown>).map(([k, v]) => [k, String(v)])) : {};
     const layout = (attrs.multiscales as { layout?: LayoutEntry[] } | undefined)?.layout;
     if (!layout) throw new Error(`${source}: the root group has no multiscales layout`);
     this.levelMap = parseLayout(layout);
@@ -384,12 +392,12 @@ export class LifeStore {
     return new LifeStore(typeof source === "string" ? source : "store", root, group.attrs as Attrs, listing);
   }
 
-  /** Open a float32 array by path inside the store, once. */
+  /** Open a float32 or float64 array by path inside the store, once. */
   arrayAt(path: string): Promise<FloatArray> {
     let p = this.arrayCache.get(path);
     if (!p) {
       p = zarr.open.v3(this.root.resolve(path), { kind: "array" }).then((a) => {
-        if (a.dtype !== "float32") throw new Error(`${path} is ${a.dtype}, expected float32`);
+        if (a.dtype !== "float32" && a.dtype !== "float64") throw new Error(`${path} is ${a.dtype}, expected float32 or float64`);
         return a as FloatArray;
       });
       this.arrayCache.set(path, p);
@@ -418,9 +426,15 @@ export class LifeStore {
     let p = this.layerCache.get(name);
     if (!p) {
       p = this.arrayAt(this.path(1, name)).then((arr) => {
-        if (name.endsWith("_area_changed")) return new Layer(this, name, name.slice(0, -"_area_changed".length), null, "area", arr.attrs as Attrs, arr);
-        const i = name.indexOf("_");
-        return new Layer(this, name, name.slice(0, i), name.slice(i + 1), "score", arr.attrs as Attrs, arr);
+        const attrs = arr.attrs as Attrs;
+        if (name.endsWith("_area_changed")) {
+          const scenario = typeof attrs.scenario === "string" ? attrs.scenario : name.slice(0, -"_area_changed".length);
+          return new Layer(this, name, scenario, null, "area", attrs, arr);
+        }
+        const scenario = typeof attrs.scenario === "string" ? attrs.scenario :
+          Object.keys(this.scenarios).sort((a, b) => b.length - a.length).find((s) => name.startsWith(`${s}_`)) ?? "";
+        const curve = typeof attrs.curve === "string" ? attrs.curve : name.slice(scenario.length + 1);
+        return new Layer(this, name, scenario, curve, "score", attrs, arr);
       });
       this.layerCache.set(name, p);
     }
@@ -450,6 +464,7 @@ export class LifeStore {
       `grid ${this.grid.width} x ${this.grid.height} pixels at ${this.grid.res} degrees, levels ` +
         this.levels.map((f) => { const l = this.level(f); return `${f} (group ${l.path || "."}, ${l.grid.width} x ${l.grid.height})`; }).join(", "),
       ...list("scenarios", this.scenarios), ...list("curves", this.curves), ...list("species groups", this.taxa),
+      ...(Object.keys(this.dataModel).length ? list("data model", this.dataModel) : []),
       `layers: ${this.layerNames().join(", ")}`,
       ...(this.info.termsOfUse ? ["", `terms of use: ${this.info.termsOfUse}`] : []),
     ].join("\n");

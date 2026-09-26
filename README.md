@@ -31,8 +31,9 @@ const shown = new LifeMapLayer(map, protocol, { layer, scale }); // after the ma
 
 ## DESCRIPTION
 
-LIFE is a global map of how changing the use of land affects the survival of
-30,875 species of amphibians, birds, mammals and reptiles. For every pixel of
+The v1.01 LIFE release is a global map of how changing the use of land affects
+the survival of 30,875 species of amphibians, birds, mammals and reptiles.
+For every pixel of
 land, one arc-minute or about 1.9 km north to south, it gives the change in the
 expected number of species that would go extinct over the next century if one
 square kilometre of that pixel were changed in one of two ways: converted from
@@ -44,8 +45,8 @@ changing one square kilometre there would add one hundredth of an expected
 extinction. A pixel where the scenario changes nothing, such as a town or
 existing cropland under conversion, holds NaN.
 
-Each scenario comes in five variants, called curves, that differ in how fast a
-species is assumed to lose its chance of survival as its habitat shrinks.  The
+In v1.01, each scenario comes in five variants, called curves, that differ in
+how fast a species is assumed to lose its chance of survival as its habitat shrinks. The
 curve named `0.25` is the published result and the others are its sensitivity
 analysis. Each variant has five bands: `all` species together, then `AMPHIBIA`,
 `AVES`, `MAMMALIA` and `REPTILIA` on their own; the first is the sum of the
@@ -70,7 +71,8 @@ false; a store object is used as given.
 
 A `LifeStore` has `info` (title, summary, version, DOIs, citation, source URL
 and terms of use), `scenarios`, `curves` and `taxa` (each a record from name
-to the store's description of it), `levels` (the reduction factors
+to the store's description of it), `dataModel` (array names, values and
+overview limitations), `levels` (the reduction factors
 available, starting at 1) and `grid` (the base grid). `describe()` returns
 all of that as text. `layer(scenario, curve)` and `area(scenario)` resolve
 to one `Layer`, `get(name)` to a layer by array name, `layers()` to them
@@ -87,7 +89,8 @@ A `Layer` carries `name`, `kind` (`"score"` or `"area"`), `scenario`,
 or of every band when `taxon` is `null`. The region is a bounding box in
 degrees from `bbox()`, a window of rows and columns, or the whole level.
 `value(lat, lon, taxon)` resolves to one number and `sample(points, taxon)`
-to a `Float32Array`, NaN off the grid or where there is no data.
+to a `Float32Array` or `Float64Array`, matching the store, with NaN off the
+grid or where there is no data.
 
 A `Raster` carries `data` in band, row, column order with NaN for no data,
 `bands`, and the `Grid` that places it: `grid.transform` is a GDAL
@@ -101,6 +104,13 @@ centres. `band(name)` views one band.
 The manifest maps version strings to store paths and may name a `latest`.
 `releases()` lists them oldest first, `latest()` and `release(version)`
 select one, and `open(version?)` opens it.
+
+The catalogue also lists `1.1~beta1`. Open it with
+`await new Catalogue().open("1.1~beta1")`. It has six scenarios (`arable`,
+`pasture`, `urban`, `restore`, `restore_agriculture`, `restore_all`), only curve
+`0.25`, and float64 scores and areas. Check `store.scenarios`, `store.curves`
+and `store.layerNames()` before choosing a layer. The catalogue still marks
+`1.01` as latest; the beta has no Zenodo DOI.
 
 ## COLOUR
 
