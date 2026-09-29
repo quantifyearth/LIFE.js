@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import * as zarr from "zarrita";
-import { Catalogue, LifeStore, bbox } from "../src/index.js";
+import { Catalogue } from "../src/catalogue.js";
+import { LifeStore } from "../src/store.js";
+import { open, DEFAULT_STORE } from "../src/index.js";
+import { bbox } from "../src/grid.js";
 import { H, RES, W, bandValues, makeStore } from "./synthetic.js";
 
 const same = (a: ArrayLike<number>, b: ArrayLike<number>) => {
@@ -186,33 +189,31 @@ test("real catalogue", { skip: !reachable }, async () => {
 });
 
 test("published store", { skip: !published }, async () => {
-  const { DEFAULT_STORE } = await import("../src/index.js");
-  const store = await LifeStore.open(); // no argument: the published store
-  assert.equal(store.source, DEFAULT_STORE);
-  assert.equal(store.version, "1.01");
-  assert.deepEqual(store.levels, [1, 2, 4, 8, 16]);
-  const layer = await store.layer("arable", "0.25");
-  const v = await layer.value(store.grid.latitudes()[5100]!, store.grid.longitudes()[11520]!);
+  const store = await open();
+  assert.equal(store.metadata.source, DEFAULT_STORE);
+  assert.equal(store.metadata.version, "1.01");
+  assert.deepEqual(store.metadata.levels.map((l) => l.factor), [1, 2, 4, 8, 16]);
+  const [a, , c, , e, f] = store.metadata.transform;
+  const [v] = await store.sample("arable_0.25", [[c + a * 11520.5, f + e * 5100.5]]);
+  assert.ok(v !== undefined);
   assert.ok(Math.abs(v - 4.533233e-5) < 1e-11, String(v));
-  const box = bbox(-0.5, 51.9, 0.6, 52.5);
-  const r = await layer.read({ bbox: box, level: 4 });
-  const win = store.level(4).grid.window(box);
-  assert.deepEqual([r.grid.height, r.grid.width], [win.row1 - win.row0, win.col1 - win.col0]);
-  assert.deepEqual([r.grid.height, r.grid.width], [10, 17]);
+  const r = await store.read("arable_0.25", { bounds: [-0.5, 51.9, 0.6, 52.5], level: 4 });
+  assert.deepEqual([r.height, r.width], [10, 17]);
+  assert.ok(r.data instanceof Float32Array);
 });
 
 test("published beta store", { skip: !publishedBeta }, async () => {
-  const store = await new Catalogue().open("1.1~beta1");
-  assert.equal(store.version, "1.1~beta1");
-  assert.deepEqual(store.levels, [1, 2, 4, 8, 16]);
-  assert.deepEqual(Object.keys(store.scenarios), ["arable", "pasture", "urban", "restore", "restore_agriculture", "restore_all"]);
-  assert.deepEqual(Object.keys(store.curves), ["0.25"]);
-  assert.equal(store.layerNames().length, 12);
-  assert.match(store.dataModel.overviews ?? "", /overview/i);
-  const score = await store.layer("restore_agriculture", "0.25");
-  assert.equal((await score.array()).dtype, "float64");
-  const raster = await score.read({ window: { row0: 5000, row1: 5001, col0: 11000, col1: 11001 } });
+  const store = await open(undefined, { version: "1.1~beta1" });
+  assert.equal(store.metadata.version, "1.1~beta1");
+  assert.deepEqual(store.metadata.levels.map((l) => l.factor), [1, 2, 4, 8, 16]);
+  assert.deepEqual(Object.keys(store.metadata.scenarios), ["arable", "pasture", "urban", "restore", "restore_agriculture", "restore_all"]);
+  assert.deepEqual(Object.keys(store.metadata.curves), ["0.25"]);
+  assert.equal(store.metadata.layers.length, 12);
+  assert.match(store.metadata.dataModel.overviews ?? "", /overview/i);
+  const score = await store.layerMetadata("restore_agriculture_0.25");
+  assert.equal(score.scenario, "restore_agriculture");
+  const window = [11000, 5000, 11001, 5001] as const;
+  const raster = await store.read(score.name, { window });
   assert.ok(raster.data instanceof Float64Array);
-  const area = await store.area("restore_all");
-  assert.ok((await area.read({ window: { row0: 5000, row1: 5001, col0: 11000, col1: 11001 } })).data instanceof Float64Array);
+  assert.ok((await store.read("restore_all_area_changed", { window })).data instanceof Float64Array);
 });

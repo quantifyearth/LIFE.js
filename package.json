@@ -1,7 +1,7 @@
 {
   "name": "life-metric",
   "version": "0.1.0",
-  "description": "Read the LIFE extinction-risk layers (Eyres et al. 2025) from a Zarr v3 store, with the colour scales to draw them",
+  "description": "Read LIFE extinction-risk maps into typed arrays and GeoTIFFs, or display them with MapLibre",
   "author": {
     "name": "Anil Madhavapeddy",
     "email": "anil@recoil.org",
@@ -34,11 +34,24 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./colour": {
+      "types": "./dist/colour.d.ts",
+      "import": "./dist/colour.js"
+    },
+    "./maplibre": {
+      "types": "./dist/maplibre.d.ts",
+      "import": "./dist/maplibre.js"
+    },
+    "./geotiff": {
+      "types": "./dist/geotiff.d.ts",
+      "import": "./dist/geotiff.js"
     }
   },
   "files": [
     "dist",
     "src",
+    "docs",
     "README.md",
     "LICENSE"
   ],
@@ -46,13 +59,19 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "tsc -p tsconfig.test.json && node --test dist-test/test/*.test.js",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "build:examples": "tsc -p tsconfig.examples.json",
+    "example": "npm run build:examples && node dist-examples/examples/run.js"
   },
   "dependencies": {
+    "@turf/boolean-point-in-polygon": "^7.4.0",
+    "@types/geojson": "^7946.0.16",
+    "geotiff": "^3.0.5",
     "zarrita": "^0.7.5"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "maplibre-gl": "^6.11.2",
     "typescript": "^5.6.0"
   },
   "engines": {

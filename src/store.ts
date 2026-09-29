@@ -11,16 +11,7 @@
 import * as zarr from "zarrita";
 import { Grid, type BBox, type Window } from "./grid.js";
 
-export type Scenario = "arable" | "restore" | "pasture" | "urban" | "restore_agriculture" | "restore_all";
-export type Curve = "0.1" | "0.25" | "0.5" | "1.0" | "gompertz";
-export type Taxon = "all" | "AMPHIBIA" | "AVES" | "MAMMALIA" | "REPTILIA";
 export type Kind = "score" | "area";
-
-/** v1.01 fallback names; use `store.scenarios` for the opened version. */
-export const SCENARIOS: readonly Scenario[] = ["arable", "restore"];
-/** v1.01 fallback curves; use `store.curves` for the opened version. */
-export const CURVES: readonly Curve[] = ["0.1", "0.25", "0.5", "1.0", "gompertz"];
-export const TAXA: readonly Taxon[] = ["all", "AMPHIBIA", "AVES", "MAMMALIA", "REPTILIA"];
 /** The published catalogue: `<catalogue>/versions.json` lists releases and `<catalogue>/v<version>` is a store. */
 export const DEFAULT_CATALOGUE = "https://data.source.coop/tessera/life";
 /** The published v1.01 store, opened when {@link LifeStore.open} is given no source. */
@@ -87,7 +78,7 @@ export function parseLayout(layout: readonly LayoutEntry[], fallback?: Grid): Ma
 /** Any store zarrita can read: a `FetchStore`, a `Map`, or anything implementing its readable interface. */
 export type StoreLike = zarr.Readable;
 type FloatArray = zarr.Array<"float32" | "float64", StoreLike>;
-type FloatData = Float32Array | Float64Array;
+export type FloatData = Float32Array | Float64Array;
 
 /** Attributes as the store wrote them. */
 export type Attrs = Record<string, unknown>;
@@ -118,6 +109,7 @@ export interface Raster {
 }
 
 export interface ReadOptions {
+  readonly signal?: AbortSignal;
   /** Band to read; `null` reads every band. Ignored by area layers. Default `"all"`. */
   readonly taxon?: string | null;
   readonly bbox?: BBox;
@@ -195,7 +187,9 @@ export class Layer {
   }
 
   /** The zarrita array of this layer at `level`. */
-  array(level = 1): Promise<FloatArray> {
+  array(level = 1, signal?: AbortSignal): Promise<FloatArray> {
+    signal?.throwIfAborted();
+    if (signal) return this.store.arrayAt(this.store.path(level, this.name), signal);
     let p = this.arrays.get(level);
     if (!p) {
       p = this.store.arrayAt(this.store.path(level, this.name));
@@ -228,8 +222,9 @@ export class Layer {
    * or, with neither, the whole level.
    */
   async read(opts: ReadOptions = {}): Promise<Raster> {
+    opts.signal?.throwIfAborted();
     const level = opts.level ?? 1;
-    const arr = await this.array(level);
+    const arr = await this.array(level, opts.signal);
     const grid = await this.grid(level);
     if (opts.bbox && opts.window) throw new Error("give bbox or window, not both");
     const win = opts.window ?? (opts.bbox ? grid.window(opts.bbox) : { row0: 0, row1: grid.height, col0: 0, col1: grid.width });
@@ -241,15 +236,15 @@ export class Layer {
     const rows = zarr.slice(win.row0, win.row1), cols = zarr.slice(win.col0, win.col1);
     const taxon = opts.taxon === undefined ? "all" : opts.taxon;
     if (arr.shape.length === 2) {
-      const out = await zarr.get(arr, [rows, cols]);
+      const out = await zarr.get(arr, [rows, cols], opts.signal ? { signal: opts.signal } : {});
       return makeRaster(out.data, grid.sub(win), this.bands, this.name, level);
     }
     if (taxon === null) {
-      const out = await zarr.get(arr, [null, rows, cols]);
+      const out = await zarr.get(arr, [null, rows, cols], opts.signal ? { signal: opts.signal } : {});
       return makeRaster(out.data, grid.sub(win), this.bands, this.name, level);
     }
     const b = this.kind === "area" ? 0 : this.bandIndex(taxon);
-    const out = await zarr.get(arr, [b, rows, cols]);
+    const out = await zarr.get(arr, [b, rows, cols], opts.signal ? { signal: opts.signal } : {});
     return makeRaster(out.data, grid.sub(win), [taxon], this.name, level);
   }
 
@@ -263,8 +258,9 @@ export class Layer {
    * The value at each `[lat, lon]` point, NaN off the grid or where there is
    * no data. Points sharing a chunk are served from one chunk read.
    */
-  async sample(points: ReadonlyArray<readonly [number, number]>, taxon = "all", level = 1): Promise<FloatData> {
-    const arr = await this.array(level);
+  async sample(points: ReadonlyArray<readonly [number, number]>, taxon = "all", level = 1, signal?: AbortSignal): Promise<FloatData> {
+    signal?.throwIfAborted();
+    const arr = await this.array(level, signal);
     const grid = await this.grid(level);
     const out = (arr.dtype === "float64" ? new Float64Array(points.length) : new Float32Array(points.length)).fill(NaN);
     const [ch, cw] = arr.chunks.slice(-2) as [number, number];
@@ -281,7 +277,7 @@ export class Layer {
     });
     await Promise.all([...byChunk].map(async ([key, idx]) => {
       const [ci, cj] = key.split("/").map(Number) as [number, number];
-      const chunk = await arr.getChunk(b < 0 ? [ci, cj] : [b, ci, cj]);
+      const chunk = await arr.getChunk(b < 0 ? [ci, cj] : [b, ci, cj], signal ? { signal } : {});
       for (const i of idx) out[i] = chunk.data[(rows[i]! - ci * ch) * cw + (cols[i]! - cj * cw)]!;
     }));
     return out;
@@ -289,6 +285,8 @@ export class Layer {
 }
 
 export interface OpenOptions {
+  readonly signal?: AbortSignal;
+  readonly fetch?: (request: Request) => Promise<Response>;
   /** Keep fetched bytes in memory so repeated reads of a chunk cost one request. Default true. */
   readonly cache?: boolean;
 }
@@ -335,9 +333,9 @@ export class LifeStore {
       ...(typeof attrs.source_url === "string" && { sourceUrl: attrs.source_url }),
       ...(typeof attrs.terms_of_reference === "string" && { termsOfUse: attrs.terms_of_reference }),
     };
-    this.scenarios = descriptions(attrs.scenarios, SCENARIOS);
-    this.curves = descriptions(attrs.curves, CURVES);
-    this.taxa = descriptions(attrs.taxa, TAXA);
+    this.scenarios = descriptions(attrs.scenarios, "scenario");
+    this.curves = descriptions(attrs.curves, "curve");
+    this.taxa = descriptions(attrs.taxa, "taxon");
     this.dataModel = attrs.data_model && typeof attrs.data_model === "object" && !Array.isArray(attrs.data_model)
       ? Object.fromEntries(Object.entries(attrs.data_model as Record<string, unknown>).map(([k, v]) => [k, String(v)])) : {};
     const layout = (attrs.multiscales as { layout?: LayoutEntry[] } | undefined)?.layout;
@@ -373,12 +371,19 @@ export class LifeStore {
    * you want those.
    */
   static async open(source: string | StoreLike = DEFAULT_STORE, opts: OpenOptions = {}): Promise<LifeStore> {
+    opts.signal?.throwIfAborted();
     let store: StoreLike;
     let listing: Set<string> | null = null;
     if (typeof source === "string") {
-      const base = new zarr.FetchStore(source);
+      const base = new zarr.FetchStore(source, { fetch: async (request) => {
+        const signal = request.signal.aborted || !opts.signal ? request.signal : opts.signal;
+        // The open signal applies to initial metadata; later reads supply their own signal.
+        return (opts.fetch ?? fetch)(new Request(request, { signal: opening ? signal : request.signal }));
+      } });
+      let opening = true;
       const cached: zarr.AsyncReadable = opts.cache === false ? base : zarr.withByteCaching(base);
-      const maybe = await zarr.withMaybeConsolidatedMetadata(cached);
+      const maybe = await zarr.withMaybeConsolidatedMetadata(cached, { format: "v3" });
+      opening = false;
       if ("contents" in maybe) listing = new Set((await maybe.contents()).map((c) => c.path));
       store = maybe;
     } else {
@@ -388,12 +393,17 @@ export class LifeStore {
       }
     }
     const root = zarr.root<StoreLike>(store);
-    const group = await zarr.open.v3(root, { kind: "group" });
+    const group = await zarr.open.v3(root, { kind: "group", ...(opts.signal && { signal: opts.signal }) });
     return new LifeStore(typeof source === "string" ? source : "store", root, group.attrs as Attrs, listing);
   }
 
   /** Open a float32 or float64 array by path inside the store, once. */
-  arrayAt(path: string): Promise<FloatArray> {
+  arrayAt(path: string, signal?: AbortSignal): Promise<FloatArray> {
+    signal?.throwIfAborted();
+    if (signal) return zarr.open.v3(this.root.resolve(path), { kind: "array", signal }).then((a) => {
+      if (a.dtype !== "float32" && a.dtype !== "float64") throw new Error(`${path} is ${a.dtype}, expected float32 or float64`);
+      return a as FloatArray;
+    });
     let p = this.arrayCache.get(path);
     if (!p) {
       p = zarr.open.v3(this.root.resolve(path), { kind: "array" }).then((a) => {
@@ -401,6 +411,7 @@ export class LifeStore {
         return a as FloatArray;
       });
       this.arrayCache.set(path, p);
+      void p.catch(() => { if (this.arrayCache.get(path) === p) this.arrayCache.delete(path); });
     }
     return p;
   }
@@ -422,10 +433,11 @@ export class LifeStore {
   }
 
   /** The layer called `name`; rejects if absent. */
-  get(name: string): Promise<Layer> {
+  get(name: string, signal?: AbortSignal): Promise<Layer> {
+    signal?.throwIfAborted();
     let p = this.layerCache.get(name);
-    if (!p) {
-      p = this.arrayAt(this.path(1, name)).then((arr) => {
+    if (!p || signal) {
+      p = this.arrayAt(this.path(1, name), signal).then((arr) => {
         const attrs = arr.attrs as Attrs;
         if (name.endsWith("_area_changed")) {
           const scenario = typeof attrs.scenario === "string" ? attrs.scenario : name.slice(0, -"_area_changed".length);
@@ -436,7 +448,10 @@ export class LifeStore {
         const curve = typeof attrs.curve === "string" ? attrs.curve : name.slice(scenario.length + 1);
         return new Layer(this, name, scenario, curve, "score", attrs, arr);
       });
-      this.layerCache.set(name, p);
+      if (!signal) {
+        this.layerCache.set(name, p);
+        void p.catch(() => { if (this.layerCache.get(name) === p) this.layerCache.delete(name); });
+      }
     }
     return p;
   }
@@ -471,9 +486,10 @@ export class LifeStore {
   }
 }
 
-function descriptions(v: unknown, fallback: readonly string[]): Readonly<Record<string, string>> {
+function descriptions(v: unknown, kind: string): Readonly<Record<string, string>> {
   if (v && typeof v === "object" && !Array.isArray(v) && Object.keys(v).length) {
-    return Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, d]) => [k, String(d)]));
+    const entries = Object.entries(v as Record<string, unknown>);
+    if (entries.every(([, d]) => typeof d === "string" && d.trim())) return Object.fromEntries(entries) as Record<string, string>;
   }
-  return Object.fromEntries(fallback.map((k) => [k, ""]));
+  throw new Error(`store has no valid ${kind} descriptions`);
 }

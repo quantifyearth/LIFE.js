@@ -1,23 +1,11 @@
-/**
- * Read the LIFE maps of extinction risk from land-cover change.
- *
- * LIFE gives, for every 1 arc-minute pixel of land on Earth, the change in
- * the expected number of species extinctions over the next century if one
- * square kilometre of that pixel were converted to cropland, or restored to
- * natural vegetation. Open the published store with {@link LifeStore.open},
- * or a release through a {@link Catalogue}, then read a layer by region or by
- * point. The colour functions turn rasters into RGBA with the same scales and
- * taxa blend the reference viewer uses, and {@link paintTile} produces XYZ
- * map tiles.
- */
+/** Read LIFE data into typed arrays and GeoJSON masks, or draw it on a canvas or MapLibre map. */
 
-export { bbox, Grid, type BBox, type Window } from "./grid.js";
-export { Catalogue, compareVersions, MANIFEST, type CatalogueOptions, type Release } from "./catalogue.js";
-export {
-  CURVES, DEFAULT_CATALOGUE, DEFAULT_STORE, Layer, LifeStore, SCENARIOS, TAXA, parseLayout,
-  type Attrs, type BandStatistics, type Curve, type Info, type Kind, type Level, type OpenOptions, type Raster, type ReadOptions,
-  type Scenario, type StoreLike, type Taxon,
-} from "./store.js";
+export { open, versions, type Client, type OpenOptions, type Metadata, type LayerMetadata,
+  type GridMetadata, type LevelMetadata, type Raster, type ReadOptions, type Selection,
+  type SampleOptions, type Bounds, type Window, type Point, type Transform, type Version } from "./client.js";
+export { type Region } from "./geometry.js";
+export { DEFAULT_CATALOGUE, DEFAULT_STORE, type FloatData, type StoreLike, type Kind,
+  type BandStatistics } from "./store.js";
 export {
   INKS, PALETTES, hexToOklab, linearToSrgb8, makeBlend, makeScale, normaliseInks, oklabToRgb8, percentileAbs, rampLut,
   type Blend, type BlendOptions, type Mode, type Polarity, type RGB, type RGBA, type Scale, type ScaleOptions, type Theme,

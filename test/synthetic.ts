@@ -39,6 +39,8 @@ export async function makeStore(): Promise<Map<string, Uint8Array>> {
   const root = zarr.root(store);
   await zarr.create(root, { attributes: {
     version: "0.9",
+    references: "Test citation.",
+    terms_of_reference: "Non-commercial use only. IBAT.",
     scenarios: { arable: "conversion", restore: "reversion" },
     curves: { "0.25": "main", gompertz: "gompertz" },
     taxa: Object.fromEntries(TAXA.map((t) => [t, t])),

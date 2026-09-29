@@ -27,13 +27,14 @@ interface Manifest {
   versions: Record<string, { path: string; released?: string; doi?: string; description?: string }>;
 }
 
-/** Compare dotted version strings numerically, so "0.10" sorts after "0.9". */
+/** Compare numeric parts of release names numerically, including beta numbers. */
 export function compareVersions(a: string, b: string): number {
-  const pa = a.split("."), pb = b.split(".");
+  const pa = a.match(/[0-9]+|[^0-9]+/g) ?? [], pb = b.match(/[0-9]+|[^0-9]+/g) ?? [];
   for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const x = pa[i] ?? "", y = pb[i] ?? "";
-    const nx = Number(x), ny = Number(y);
-    const c = Number.isInteger(nx) && Number.isInteger(ny) ? nx - ny : x.localeCompare(y);
+    if (i >= pa.length) return -1;
+    if (i >= pb.length) return 1;
+    const x = pa[i], y = pb[i];
+    const c = /^[0-9]+$/.test(x) && /^[0-9]+$/.test(y) ? Number(x) - Number(y) : x.localeCompare(y);
     if (c !== 0) return c;
   }
   return 0;
@@ -70,7 +71,7 @@ export class Catalogue {
     return this.manifest;
   }
 
-  /** Every release, oldest first. */
+  /** Every release in version order. */
   async releases(): Promise<Release[]> {
     const m = await this.load();
     return Object.entries(m.versions)

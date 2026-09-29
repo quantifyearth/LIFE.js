@@ -9,12 +9,14 @@
  */
 
 import type { Blend, Scale } from "./colour.js";
-import type { Layer } from "./store.js";
+import type { Client } from "./client.js";
 import { paintTile, type Image } from "./tiles.js";
 
 /** What to draw: one band through a scale, or every class through a blend. */
 export interface TileSpec {
-  readonly layer: Layer;
+  readonly client: Client;
+  /** Array name in the opened store. */
+  readonly layer: string;
   /** Band to paint with `scale`. Default `"all"`. Ignored with `blend`. */
   readonly taxon?: string;
   readonly scale?: Scale;
@@ -37,7 +39,7 @@ export interface RasterSourceSpec {
 
 /** The part of the `maplibregl` module this package uses. */
 export interface MapLibreLike {
-  addProtocol(name: string, handler: (request: { url: string }) => Promise<{ data: unknown }>): void;
+  addProtocol(name: string, handler: (request: { url: string }, abortController: AbortController) => Promise<{ data: ImageBitmap }>): void;
   removeProtocol?(name: string): void;
 }
 
@@ -89,19 +91,23 @@ export class LifeProtocol {
   }
 
   /** The handler MapLibre calls for each tile. */
-  readonly handler = async ({ url }: { url: string }): Promise<{ data: ImageBitmap }> => {
+  readonly handler = async ({ url }: { url: string }, abortController: AbortController): Promise<{ data: ImageBitmap }> => {
+    abortController.signal.throwIfAborted();
     const { id, z, x, y } = parseTileUrl(url, this.name);
     const spec = this.specs.get(id);
     const size = spec?.tileSize ?? 256;
     if (!spec) return { data: await toImageBitmap({ width: size, height: size, data: new Uint8ClampedArray(size * size * 4) }) };
-    const tile = await paintTile(spec.layer, {
+    const tile = await paintTile(spec.client, spec.layer, {
+      signal: abortController.signal,
       z, x, y, size,
       ...(spec.taxon !== undefined && { taxon: spec.taxon }),
       ...(spec.scale !== undefined && { scale: spec.scale }),
       ...(spec.blend !== undefined && { blend: spec.blend }),
       ...(spec.hideZeros !== undefined && { hideZeros: spec.hideZeros }),
     });
-    return { data: await toImageBitmap(tile) };
+    const bitmap = await toImageBitmap(tile);
+    if (abortController.signal.aborted) { bitmap.close(); abortController.signal.throwIfAborted(); }
+    return { data: bitmap };
   };
 
   /** Register a spec and return the id that names it in tile URLs. */

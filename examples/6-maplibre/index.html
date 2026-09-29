@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>LIFE MapLibre map</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@6.11.2/dist/maplibre-gl.css">
+<style>body { margin: 0; } #map { position: absolute; inset: 0; }</style>
+<script type="importmap">
+{"imports": {
+  "zarrita": "https://cdn.jsdelivr.net/npm/zarrita@0.7.5/+esm",
+  "@turf/boolean-point-in-polygon": "https://cdn.jsdelivr.net/npm/@turf/boolean-point-in-polygon@7.4.0/+esm",
+  "maplibre-gl": "https://cdn.jsdelivr.net/npm/maplibre-gl@6.11.2/dist/maplibre-gl.mjs"
+}}
+</script>
+<div id="map" aria-label="LIFE arable conversion map"></div>
+<script type="module">
+import * as maplibregl from "maplibre-gl";
+import { open, OSM_STYLE } from "../../dist-examples/src/index.js";
+import { showMap } from "../../dist-examples/examples/6-maplibre/maplibre.js";
+const source = new URLSearchParams(location.search).get("store") || undefined;
+const client = await open(source);
+const map = new maplibregl.Map({ container: "map", style: OSM_STYLE, center: [20, 10], zoom: 2 });
+map.on("load", () => showMap(map, maplibregl, client));
+</script>
+</html>

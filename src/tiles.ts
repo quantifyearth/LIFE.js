@@ -1,7 +1,8 @@
 /** Paint Web Mercator map tiles from a layer, for MapLibre, Leaflet or any XYZ consumer. */
 
 import type { Blend, Scale } from "./colour.js";
-import type { Layer } from "./store.js";
+import type { Client } from "./client.js";
+import { Grid } from "./grid.js";
 
 /** An RGBA image with `width * height * 4` bytes, ready for `new ImageData(data, width, height)`. */
 export interface Image {
@@ -34,6 +35,7 @@ export function pickLevel(z: number, levels: readonly number[], res: number, siz
 }
 
 export interface TileOptions {
+  readonly signal?: AbortSignal;
   readonly z: number;
   readonly x: number;
   readonly y: number;
@@ -56,13 +58,19 @@ export interface TileOptions {
  * The overview level is chosen from the zoom, the covering window is read
  * in one request, and each tile pixel takes its nearest source pixel.
  */
-export async function paintTile(layer: Layer, opts: TileOptions): Promise<Image> {
+export async function paintTile(client: Client, layer: string, opts: TileOptions): Promise<Image> {
+  opts.signal?.throwIfAborted();
   const size = opts.size ?? 256;
   if (!Number.isInteger(size) || size <= 0) throw new RangeError("tile size must be a positive integer");
   const lats = tileLats(opts.y, opts.z, size), lons = tileLons(opts.x, opts.z, size);
   const furthest = Math.max(Math.abs(lats[0]!), Math.abs(lats[size - 1]!));
-  const level = opts.level ?? pickLevel(opts.z, layer.store.levels, layer.store.grid.res, size, furthest);
-  const grid = await layer.grid(level);
+  if (!Number.isInteger(opts.z) || opts.z < 0 || opts.z > 30 || !Number.isInteger(opts.x) || !Number.isInteger(opts.y) ||
+      opts.x < 0 || opts.y < 0 || opts.x >= 2 ** opts.z || opts.y >= 2 ** opts.z) throw new RangeError("tile coordinates must be valid XYZ integers");
+  const metadata = client.metadata;
+  const level = opts.level ?? pickLevel(opts.z, metadata.levels.map((l) => l.factor), metadata.resolution, size, furthest);
+  const selected = metadata.levels.find((l) => l.factor === level);
+  if (!selected) throw new RangeError(`level ${level} is not in the store`);
+  const grid = new Grid(selected.width, selected.height, selected.resolution, selected.transform[2], selected.transform[5]);
   const rows = new Int32Array(size), cols = new Int32Array(size);
   let rmin = Infinity, rmax = -Infinity, cmin = Infinity, cmax = -Infinity;
   for (let j = 0; j < size; j++) {
@@ -77,14 +85,19 @@ export async function paintTile(layer: Layer, opts: TileOptions): Promise<Image>
     cols[i] = c;
     cmin = Math.min(cmin, c); cmax = Math.max(cmax, c);
   }
-  const window = { row0: rmin, row1: rmax + 1, col0: cmin, col1: cmax + 1 };
-  const w = window.col1 - window.col0, h = window.row1 - window.row0;
+  const window = [cmin, rmin, cmax + 1, rmax + 1] as const;
+  const w = cmax - cmin + 1, h = rmax - rmin + 1;
   if (opts.blend) {
     const blend = opts.blend;
-    const raster = await layer.read({ taxon: null, window, level });
-    const bands = blend.names.map((n) => raster.band(n));
+    const raster = await client.read(layer, { taxon: null, window, level, ...(opts.signal && { signal: opts.signal }) });
+    const bands = blend.names.map((n) => {
+      const index = raster.bands.indexOf(n);
+      if (index < 0) throw new Error(`${layer} has no ${n} band`);
+      return raster.data.subarray(index * w * h, (index + 1) * w * h);
+    });
     const values = new Float64Array(bands.length);
     for (let j = 0; j < size; j++) {
+      opts.signal?.throwIfAborted();
       if (rows[j]! < 0) continue;
       const rr = rows[j]! - rmin;
       for (let i = 0; i < size; i++) {
@@ -98,11 +111,12 @@ export async function paintTile(layer: Layer, opts: TileOptions): Promise<Image>
   const scale = opts.scale;
   if (!scale) throw new Error("paintTile needs a scale or a blend");
   const hideZeros = opts.hideZeros ?? true;
-  const raster = await layer.read({ taxon: opts.taxon ?? "all", window, level });
+  const raster = await client.read(layer, { taxon: opts.taxon ?? "all", window, level, ...(opts.signal && { signal: opts.signal }) });
   const src = raster.data;
   if (src.length !== w * h) throw new Error("unexpected raster size");
   const { lut } = scale;
   for (let j = 0; j < size; j++) {
+    opts.signal?.throwIfAborted();
     if (rows[j]! < 0) continue;
     const rr = rows[j]! - rmin;
     for (let i = 0; i < size; i++) {

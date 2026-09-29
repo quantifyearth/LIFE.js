@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>LIFE regional map</title>
+<script type="importmap">
+{"imports": {
+  "zarrita": "https://cdn.jsdelivr.net/npm/zarrita@0.7.5/+esm",
+  "@turf/boolean-point-in-polygon": "https://cdn.jsdelivr.net/npm/@turf/boolean-point-in-polygon@7.4.0/+esm",
+  "maplibre-gl": "https://cdn.jsdelivr.net/npm/maplibre-gl@6.11.2/dist/maplibre-gl.mjs"
+}}
+</script>
+<canvas aria-label="LIFE arable conversion scores"></canvas>
+<script type="module">
+import { open } from "../../dist-examples/src/index.js";
+import { drawRegion } from "../../dist-examples/examples/5-canvas/canvas.js";
+const source = new URLSearchParams(location.search).get("store") || undefined;
+await drawRegion(document.querySelector("canvas"), await open(source));
+</script>
+</html>
