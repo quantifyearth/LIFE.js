@@ -1,0 +1,41 @@
+cff-version: 1.2.0
+message: "If you use LIFE, please cite the paper in preferred-citation."
+title: LIFE.js
+authors:
+  - family-names: Madhavapeddy
+    given-names: Anil
+  - family-names: Dales
+    given-names: Michael
+repository-code: https://github.com/quantifyearth/LIFE.js
+preferred-citation:
+  type: article
+  title: "LIFE: A metric for mapping the impact of land-cover change on global extinctions"
+  authors:
+    - family-names: Eyres
+      given-names: Alison
+    - family-names: Ball
+      given-names: Thomas S.
+    - family-names: Dales
+      given-names: Michael
+    - family-names: Swinfield
+      given-names: Tom
+    - family-names: Arnell
+      given-names: Andy
+    - family-names: Baisero
+      given-names: Daniele
+    - family-names: Durán
+      given-names: América Paz
+    - family-names: Green
+      given-names: Jonathan M. H.
+    - family-names: Green
+      given-names: Rhys E.
+    - family-names: Madhavapeddy
+      given-names: Anil
+    - family-names: Balmford
+      given-names: Andrew
+  journal: "Philosophical Transactions of the Royal Society B: Biological Sciences"
+  volume: 380
+  issue: 1917
+  date-published: "2025-01-09"
+  year: 2025
+  doi: 10.1098/rstb.2023.0327

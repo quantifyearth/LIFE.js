@@ -9,6 +9,11 @@
   },
   "contributors": [
     {
+      "name": "Anil Madhavapeddy",
+      "email": "anil@recoil.org",
+      "url": "https://anil.recoil.org"
+    },
+    {
       "name": "Michael Dales",
       "email": "mwd24@cam.ac.uk"
     }
@@ -53,6 +58,7 @@
     "src",
     "docs",
     "README.md",
+    "CITATION.cff",
     "LICENSE"
   ],
   "sideEffects": false,
